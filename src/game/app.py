@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from dataclasses import dataclass
 from typing import Optional, Type
@@ -55,28 +56,37 @@ class GameApp:
     def run(self, initial_scene: Type[Scene]) -> None:
         self.manager.set_scene(initial_scene)
         while self.running:
-            dt = self.clock.tick(60) / 1000.0
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    self.running = False
-                else:
-                    if self.manager.current:
-                        self.manager.current.handle_event(event)
-
-            if not self.running:
-                break
-
-            if self.manager.current:
-                self.manager.current.update(dt)
-                self.manager.current.draw(self.surface)
-
-            scaled = pygame.transform.scale(
-                self.surface, (int(self.logical_size.x) * self.scale, int(self.logical_size.y) * self.scale)
-            )
-            self.screen.blit(scaled, (0, 0))
-            pygame.display.flip()
+            self.tick()
 
         pygame.quit()
         sys.exit(0)
+
+    async def run_async(self, initial_scene: Type[Scene]) -> None:
+        self.manager.set_scene(initial_scene)
+        while self.running:
+            self.tick()
+            await asyncio.sleep(0)
+
+    def tick(self) -> None:
+        dt = self.clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.running = False
+            else:
+                if self.manager.current:
+                    self.manager.current.handle_event(event)
+
+        if not self.running:
+            return
+
+        if self.manager.current:
+            self.manager.current.update(dt)
+            self.manager.current.draw(self.surface)
+
+        scaled = pygame.transform.scale(
+            self.surface, (int(self.logical_size.x) * self.scale, int(self.logical_size.y) * self.scale)
+        )
+        self.screen.blit(scaled, (0, 0))
+        pygame.display.flip()

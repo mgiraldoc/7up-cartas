@@ -4,11 +4,13 @@ import asyncio
 import json
 import queue
 import ssl
+import sys
 import threading
 from typing import Any, Dict, List, Optional
 
-import certifi
-import websockets
+if sys.platform != "emscripten":
+    import certifi
+    import websockets
 
 
 class OnlineClient:
@@ -31,13 +33,28 @@ class OnlineClient:
         self.error: Optional[str] = None
         self._incoming: "queue.Queue[Dict[str, Any]]" = queue.Queue()
         self._outgoing: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._pending: List[Dict[str, Any]] = []
+        self._socket = None
+        self._proxies: List[Any] = []
+        self._thread = None
+        if sys.platform != "emscripten":
+            self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
-        self._thread.start()
+        if sys.platform == "emscripten":
+            self._start_browser()
+            return
+        if self._thread is not None:
+            self._thread.start()
 
     def send(self, payload: Dict[str, Any]) -> None:
         if self.closed:
+            return
+        if sys.platform == "emscripten":
+            if self.connected and self._socket is not None:
+                self._socket.send(json.dumps(payload))
+            else:
+                self._pending.append(payload)
             return
         self._outgoing.put(payload)
 
@@ -54,7 +71,68 @@ class OnlineClient:
         if self.closed:
             return
         self.closed = True
+        if sys.platform == "emscripten":
+            if self._socket is not None:
+                self._socket.close()
+            return
         self._outgoing.put(None)
+
+    def _start_browser(self) -> None:
+        try:
+            from platform import window
+            from pyodide.ffi import create_proxy
+
+            self.closed = False
+            self._socket = window.WebSocket.new(self.server_url)
+
+            def on_open(event: Any) -> None:
+                del event
+                self.connected = True
+                initial_payload: Dict[str, Any]
+                if self.mode == "online_host":
+                    initial_payload = {
+                        "type": "create_room",
+                        "player_name": self.player_name,
+                        "bot_count": self.bot_count,
+                    }
+                else:
+                    initial_payload = {
+                        "type": "join_room",
+                        "player_name": self.player_name,
+                        "room_code": self.room_code,
+                    }
+                self._socket.send(json.dumps(initial_payload))
+                while self._pending:
+                    self._socket.send(json.dumps(self._pending.pop(0)))
+
+            def on_message(event: Any) -> None:
+                payload = json.loads(str(event.data))
+                if isinstance(payload, dict):
+                    self._incoming.put(payload)
+
+            def on_error(event: Any) -> None:
+                del event
+                self.error = "Error de conexión WebSocket."
+                self._incoming.put({"type": "error", "message": self.error})
+
+            def on_close(event: Any) -> None:
+                del event
+                self.connected = False
+                self.closed = True
+
+            for event_name, callback in (
+                ("open", on_open),
+                ("message", on_message),
+                ("error", on_error),
+                ("close", on_close),
+            ):
+                proxy = create_proxy(callback)
+                self._proxies.append(proxy)
+                self._socket.addEventListener(event_name, proxy)
+        except Exception as exc:  # pragma: no cover - browser path
+            self.error = str(exc)
+            self.closed = True
+            self._incoming.put({"type": "error", "message": self.error})
 
     def _run(self) -> None:
         asyncio.run(self._runner())
