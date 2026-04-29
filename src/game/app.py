@@ -14,9 +14,9 @@ from .scenes.base import Scene
 class AppConfig:
     human_name: str = "Mateo"
     bot_count: int = 2
-    width: int = 640
-    height: int = 360
-    scale: int = 2
+    width: int = 800
+    height: int = 450
+    scale: int = 1
     server_url: str = "ws://127.0.0.1:8765"
     online_mode: str = "local"
     room_code: str = ""

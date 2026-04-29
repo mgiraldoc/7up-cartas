@@ -20,8 +20,8 @@ def _create_app_config(
     from src.game.app import AppConfig
 
     bot_count = max(1, min(6, bot_count))
-    width = max(840, width)
-    height = max(472, height)
+    width = max(800, width)
+    height = max(450, height)
     scale = max(1, scale)
     return AppConfig(
         human_name=human_name,
@@ -40,8 +40,8 @@ def _browser_config():
     server_url = params.get("server", [DEFAULT_SERVER])[0]
     human_name = params.get("name", ["Jugador"])[0]
     bots = int(params.get("bots", ["2"])[0])
-    width = int(params.get("width", ["960"])[0])
-    height = int(params.get("height", ["540"])[0])
+    width = int(params.get("width", ["800"])[0])
+    height = int(params.get("height", ["450"])[0])
     scale = int(params.get("scale", ["1"])[0])
     return _create_app_config(
         human_name=human_name,
@@ -57,9 +57,9 @@ def _desktop_config(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Cliente pygame para 7UP - Cartas.")
     parser.add_argument("--human", default="Mateo", help="Nombre del jugador humano.")
     parser.add_argument("--bots", type=int, default=2, help="Cantidad de bots a enfrentar (1-6).")
-    parser.add_argument("--width", type=int, default=960, help="Ancho lógico del lienzo (px).")
-    parser.add_argument("--height", type=int, default=540, help="Alto lógico del lienzo (px).")
-    parser.add_argument("--scale", type=int, default=2, help="Factor de escala entero para pixel art.")
+    parser.add_argument("--width", type=int, default=800, help="Ancho lógico del lienzo (px).")
+    parser.add_argument("--height", type=int, default=450, help="Alto lógico del lienzo (px).")
+    parser.add_argument("--scale", type=int, default=1, help="Factor de escala entero para pixel art.")
     parser.add_argument("--server", default=DEFAULT_SERVER, help="URL websocket del servidor online.")
     args = parser.parse_args(argv)
     return _create_app_config(
