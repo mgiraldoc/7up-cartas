@@ -35,9 +35,12 @@ class MenuScene(Scene):
         self.bot_buttons: List[Tuple[int, pygame.Rect]] = []
         self.start_button = pygame.Rect(0, 0, 0, 0)
         self.room_code_box = pygame.Rect(0, 0, 0, 0)
+        self.name_box = pygame.Rect(0, 0, 0, 0)
         self.selected_bot_count = max(0, min(5, self.app.config.bot_count))
         self.selected_mode = self.app.config.online_mode if self.app.config.online_mode != "local" else self.MODE_LOCAL
         self.room_code_input = self.app.config.room_code.upper().strip()[:4]
+        self.name_input = self.app.config.human_name.strip() or "Jugador"
+        self.name_active = False
         self.feedback = ""
 
     def on_enter(self) -> None:
@@ -47,6 +50,8 @@ class MenuScene(Scene):
         self.app.online_state_snapshot = None
         self.selected_bot_count = max(0, min(5, self.app.config.bot_count))
         self.room_code_input = self.app.config.room_code.upper().strip()[:4]
+        self.name_input = self.app.config.human_name.strip() or "Jugador"
+        self.name_active = False
         self.feedback = ""
 
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -54,6 +59,15 @@ class MenuScene(Scene):
             mouse = pygame.Vector2(event.pos[0] / self.app.scale, event.pos[1] / self.app.scale)
             self._handle_click(mouse)
         elif event.type == pygame.KEYDOWN:
+            if self.name_active:
+                if event.key == pygame.K_BACKSPACE:
+                    self.name_input = self.name_input[:-1]
+                elif event.key in (pygame.K_RETURN, pygame.K_TAB):
+                    self.name_active = False
+                else:
+                    if event.unicode and (event.unicode.isalnum() or event.unicode in " _-") and len(self.name_input) < 18:
+                        self.name_input += event.unicode
+                return
             if event.key in (pygame.K_TAB,):
                 self._cycle_mode()
             elif self.selected_mode in (self.MODE_LOCAL, self.MODE_HOST):
@@ -77,7 +91,13 @@ class MenuScene(Scene):
             if rect.collidepoint(mouse):
                 self.selected_mode = mode
                 self.feedback = ""
+                self.name_active = False
                 return
+        if self.name_box.collidepoint(mouse):
+            self.name_active = True
+            self.feedback = ""
+            return
+        self.name_active = False
         for bot_count, rect in self.bot_buttons:
             if rect.collidepoint(mouse):
                 self.selected_bot_count = bot_count
@@ -95,7 +115,7 @@ class MenuScene(Scene):
         self.app.config.bot_count = self.selected_bot_count
         self.app.config.online_mode = self.selected_mode
         self.app.config.room_code = self.room_code_input
-        self.app.config.human_name = self.app.config.human_name.strip() or "Jugador"
+        self.app.config.human_name = self.name_input.strip() or "Jugador"
 
         if self.selected_mode == self.MODE_LOCAL:
             if self.selected_bot_count < 1:
@@ -135,7 +155,14 @@ class MenuScene(Scene):
         pygame.draw.rect(surface, self.BORDER_COLOR, panel, 2, border_radius=10)
 
         self._blit_text(surface, "7UP - Cartas", (panel.x + 28, panel.y + 26), self.font, self.ACCENT)
-        self._blit_text(surface, f"Jugador: {self.app.config.human_name}", (panel.x + 28, panel.y + 76), self.font_tiny, self.TEXT_DIM)
+        self._blit_text(surface, "Tu nombre", (panel.x + 28, panel.y + 76), self.font_tiny, self.TEXT_DIM)
+        self.name_box = pygame.Rect(panel.x + 128, panel.y + 68, 220, 34)
+        pygame.draw.rect(surface, self.PANEL_ALT if self.name_active else self.BUTTON_COLOR, self.name_box, border_radius=8)
+        pygame.draw.rect(surface, self.ACCENT if self.name_active else self.BORDER_COLOR, self.name_box, 2, border_radius=8)
+        name_text = self.name_input or "Jugador"
+        if self.name_active and pygame.time.get_ticks() // 500 % 2 == 0:
+            name_text += "_"
+        self._blit_text(surface, name_text, (self.name_box.x + 12, self.name_box.y + 7), self.font_tiny, self.BUTTON_TEXT)
         self._blit_text(surface, f"Servidor: {self.app.config.server_url}", (panel.x + 28, panel.y + 102), self.font_tiny, self.TEXT_DIM)
 
         mode_y = panel.y + 142
@@ -192,7 +219,7 @@ class MenuScene(Scene):
             self.TEXT_COLOR,
         )
 
-        helper = "Tab cambia modo. Enter confirma."
+        helper = "Click en tu nombre para editarlo. Tab cambia modo. Enter confirma."
         self._blit_text(surface, helper, (panel.x + 28, panel.bottom - 22), self.font_tiny, self.TEXT_DIM)
         if self.feedback:
             self._blit_text(surface, self.feedback, (panel.x + 28, panel.bottom - 104), self.font_tiny, pygame.Color(220, 110, 110))

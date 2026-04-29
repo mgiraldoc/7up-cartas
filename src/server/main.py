@@ -189,7 +189,7 @@ class MultiplayerServer:
                 await websocket.send(json.dumps({"type": "error", "message": "La sala ya está llena."}))
                 return
             if player_name in room.connections:
-                await websocket.send(json.dumps({"type": "error", "message": "Ese nombre ya está en uso en la sala."}))
+                await websocket.send(json.dumps({"type": "error", "message": "Ese nombre ya está en uso en la sala. Elige otro distinto."}))
                 return
             self.socket_rooms[id(websocket)] = (room_code, player_name)
             await room.add_player(player_name, websocket)
