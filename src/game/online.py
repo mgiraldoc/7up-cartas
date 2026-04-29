@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import ssl
 import threading
 from typing import Any, Dict, List, Optional
 
+import certifi
 import websockets
 
 
@@ -59,7 +61,10 @@ class OnlineClient:
 
     async def _runner(self) -> None:
         try:
-            async with websockets.connect(self.server_url) as websocket:
+            ssl_context = None
+            if self.server_url.startswith("wss://"):
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+            async with websockets.connect(self.server_url, ssl=ssl_context) as websocket:
                 self.connected = True
                 initial_payload: Dict[str, Any]
                 if self.mode == "online_host":
