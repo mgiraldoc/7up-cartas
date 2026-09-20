@@ -2,5 +2,9 @@ services:
   - type: web
     name: 7up-cartas-server
     runtime: python
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
     buildCommand: pip install -r requirements.txt
     startCommand: python3 -m src.server.main --host 0.0.0.0 --port $PORT
