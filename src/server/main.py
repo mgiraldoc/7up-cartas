@@ -49,9 +49,10 @@ class Room:
 
     async def start_game(self) -> None:
         human_names = self.human_names()
-        available_bots = [name for name in BOT_NAME_POOL if name not in human_names]
+        human_names_lower = {name.lower() for name in human_names}
+        available_bots = [name for name in BOT_NAME_POOL if name.lower() not in human_names_lower]
         bot_count = max(0, min(self.bot_count, max(0, 7 - len(human_names)), len(available_bots)))
-        bot_names = available_bots[:bot_count]
+        bot_names = random.sample(available_bots, k=bot_count)
         self.state = CardGameState(human_names, bot_names)
         self.state.advance_automatic()
         await self.broadcast_state()
