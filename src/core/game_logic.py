@@ -25,23 +25,22 @@ SUIT_MAP = {
 }
 
 BOT_NAME_POOL = [
-    "Luna",
-    "Max",
-    "Chloe",
-    "Diego",
-    "Sofia",
-    "Leo",
-    "Val",
-    "Nico",
-    "Paz",
-    "Rafa",
-    "Iris",
-    "Mate",
-    "Eva",
-    "Gus",
-    "Mika",
-    "Rin",
+    "Naruto",
+    "Batman",
+    "Anakin",
+    "Bad Bunny",
+    "Lionel",
+    "Sydney",
+    "Maria Lurdes",
+    "Karol G",
+    "Katara",
 ]
+
+# Shared pacing constants keep the local and online presentations in sync.
+AI_PLAY_DELAY = 0.9
+PREDICTION_REVEAL_DELAY = 1.8
+TRICK_WINNER_REVEAL_DELAY = 0.8
+TRICK_RESOLVE_DELAY = 3.0
 
 
 def normalize_card(card_str: str) -> str:
@@ -175,7 +174,13 @@ class GamePhase(Enum):
 
 
 class CardGameState:
-    def __init__(self, human_name: str | List[str], bot_names: List[str]) -> None:
+    def __init__(
+        self,
+        human_name: str | List[str],
+        bot_names: List[str],
+        *,
+        defer_ai_predictions: bool = False,
+    ) -> None:
         human_names = [human_name] if isinstance(human_name, str) else list(human_name)
         human_name_set = set(human_names)
         all_names = human_names + bot_names
@@ -184,9 +189,11 @@ class CardGameState:
             for name in all_names
         ]
         self.player_lookup: Dict[str, PlayerState] = {p.name: p for p in self.players}
+        self.defer_ai_predictions = defer_ai_predictions
         self.round_sequence = compute_round_sequence(len(self.players))
         self.total_round_count = len(self.round_sequence)
         self.round_index = -1
+        self.initial_start_index = random.randrange(len(self.players))
         self.round_stats: List[Dict[str, Dict[str, int]]] = []
         self.round_labels: List[int] = []
 
@@ -244,7 +251,7 @@ class CardGameState:
         self.lead_suit = None
         self.last_trick_winner = None
 
-        start_index = self.round_index % len(self.players)
+        start_index = (self.initial_start_index + self.round_index) % len(self.players)
         self.round_order = player_names[start_index:] + player_names[:start_index]
         self.turn_order = self.round_order[:]
         self.active_player_index = 0
@@ -253,7 +260,35 @@ class CardGameState:
         self.prediction_index = 0
 
         self.current_phase = GamePhase.AI_PREDICTIONS
-        self._advance_prediction_phase()
+        if self.defer_ai_predictions:
+            self._prepare_deferred_prediction_turn()
+        else:
+            self._advance_prediction_phase()
+
+    def _prepare_deferred_prediction_turn(self) -> None:
+        if self.prediction_index >= len(self.prediction_order):
+            self._start_trick_phase()
+        elif self.player_lookup[self.prediction_order[self.prediction_index]].is_human:
+            self.current_phase = GamePhase.HUMAN_PREDICTION
+        else:
+            self.current_phase = GamePhase.AI_PREDICTIONS
+
+    def advance_one_ai_prediction(self) -> Optional[Tuple[str, int]]:
+        if self.current_phase != GamePhase.AI_PREDICTIONS or self.prediction_index >= len(self.prediction_order):
+            return None
+        player_name = self.prediction_order[self.prediction_index]
+        player = self.player_lookup[player_name]
+        if player.is_human:
+            self.current_phase = GamePhase.HUMAN_PREDICTION
+            return None
+        prediction = min(
+            self.cards_per_player,
+            max(0, ai_predict_hand(player.hand, self.trump_suit or "")),
+        )
+        player.prediction = prediction
+        self.prediction_index += 1
+        self._prepare_deferred_prediction_turn()
+        return player_name, prediction
 
     def _advance_prediction_phase(self) -> None:
         while self.prediction_index < len(self.prediction_order):
@@ -292,7 +327,10 @@ class CardGameState:
         player.prediction = min(self.cards_per_player, max(0, value))
         self.prediction_index += 1
         self.current_phase = GamePhase.AI_PREDICTIONS
-        self._advance_prediction_phase()
+        if self.defer_ai_predictions:
+            self._prepare_deferred_prediction_turn()
+        else:
+            self._advance_prediction_phase()
         return True
 
     def _start_trick_phase(self) -> None:
@@ -392,14 +430,20 @@ class CardGameState:
     def is_game_over(self) -> bool:
         return self.current_phase == GamePhase.GAME_OVER
 
-    def advance_automatic(self, max_steps: int = 64) -> None:
+    def advance_automatic(
+        self,
+        max_steps: int = 64,
+        *,
+        play_ai_cards: bool = True,
+        play_ai_predictions: bool = True,
+    ) -> None:
         steps = 0
         while steps < max_steps:
             steps += 1
-            if self.current_phase == GamePhase.AI_PREDICTIONS:
+            if play_ai_predictions and self.current_phase == GamePhase.AI_PREDICTIONS:
                 self._advance_prediction_phase()
                 continue
-            if self.current_phase == GamePhase.PLAY_TRICK and not self.current_player.is_human:
+            if play_ai_cards and self.current_phase == GamePhase.PLAY_TRICK and not self.current_player.is_human:
                 self.play_ai_card()
                 continue
             break
@@ -427,6 +471,7 @@ class CardGameState:
             "players": players,
             "round_sequence": self.round_sequence[:],
             "total_round_count": self.total_round_count,
+            "initial_start_index": self.initial_start_index,
             "round_index": self.round_index,
             "round_stats": self.round_stats[:],
             "round_labels": self.round_labels[:],
@@ -460,8 +505,10 @@ class CardGameState:
             for player in snapshot.get("players", [])
         ]
         state.player_lookup = {p.name: p for p in state.players}
+        state.defer_ai_predictions = False
         state.round_sequence = list(snapshot.get("round_sequence", []))
         state.total_round_count = int(snapshot.get("total_round_count", len(state.round_sequence)))
+        state.initial_start_index = int(snapshot.get("initial_start_index", 0))
         state.round_index = int(snapshot.get("round_index", -1))
         state.round_stats = list(snapshot.get("round_stats", []))
         state.round_labels = list(snapshot.get("round_labels", []))
