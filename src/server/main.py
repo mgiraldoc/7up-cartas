@@ -36,6 +36,7 @@ class Room:
 
     async def add_player(self, player_name: str, websocket: websockets.ServerConnection) -> None:
         self.connections[player_name] = websocket
+        self.bot_count = min(self.bot_count, max(0, 7 - len(self.connections)))
         await self.broadcast_lobby()
 
     async def remove_player(self, player_name: str) -> None:
@@ -77,7 +78,7 @@ class Room:
                 "players": self.human_names(),
                 "host_name": self.host_name,
                 "minimum_humans": self.minimum_humans,
-                "max_humans": max(2, 7 - self.bot_count),
+                "max_humans": 7,
                 "bot_count": self.bot_count,
                 "status": "waiting",
             }
@@ -104,6 +105,12 @@ class Room:
         if payload.get("type") == "start_game":
             if player_name == self.host_name and self.state is None and len(self.connections) >= self.minimum_humans:
                 await self.start_game()
+            return
+        if payload.get("type") == "set_bot_count":
+            if player_name == self.host_name and self.state is None:
+                requested = int(payload.get("bot_count", 0))
+                self.bot_count = max(0, min(7 - len(self.connections), requested))
+                await self.broadcast_lobby()
             return
         if self.state is None:
             return
@@ -178,8 +185,8 @@ class MultiplayerServer:
         player_name = str(payload.get("player_name", "")).strip()[:24] or "Jugador"
 
         if message_type == "create_room":
-            # Preserve at least two human seats; bots fill only the chosen seats.
-            bot_count = max(0, min(5, int(payload.get("bot_count", 0))))
+            # Bots are chosen in the lobby after humans have joined.
+            bot_count = 0
             room_code = generate_room_code(set(self.rooms.keys()))
             room = Room(code=room_code, host_name=player_name, bot_count=bot_count)
             self.rooms[room_code] = room
@@ -196,7 +203,7 @@ class MultiplayerServer:
             if room.state is not None:
                 await websocket.send(json.dumps({"type": "error", "message": "La partida ya comenzó."}))
                 return
-            if len(room.connections) >= max(2, 7 - room.bot_count) and player_name not in room.connections:
+            if len(room.connections) >= 7 and player_name not in room.connections:
                 await websocket.send(json.dumps({"type": "error", "message": "La sala ya está llena."}))
                 return
             if player_name in room.connections:
