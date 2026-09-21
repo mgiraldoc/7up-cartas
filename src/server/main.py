@@ -26,7 +26,7 @@ class Room:
     code: str
     host_name: str
     bot_count: int
-    humans_needed: int = 2
+    minimum_humans: int = 2
     connections: Dict[str, websockets.ServerConnection] = field(default_factory=dict)
     state: Optional[CardGameState] = None
     trick_task: Optional[asyncio.Task[None]] = None
@@ -36,13 +36,12 @@ class Room:
 
     async def add_player(self, player_name: str, websocket: websockets.ServerConnection) -> None:
         self.connections[player_name] = websocket
-        if self.state is None and len(self.connections) >= self.humans_needed:
-            await self.start_game()
-        else:
-            await self.broadcast_lobby()
+        await self.broadcast_lobby()
 
     async def remove_player(self, player_name: str) -> None:
         self.connections.pop(player_name, None)
+        if self.state is None and self.host_name == player_name and self.connections:
+            self.host_name = next(iter(self.connections))
         if self.trick_task and not self.trick_task.done():
             self.trick_task.cancel()
             self.trick_task = None
@@ -76,7 +75,9 @@ class Room:
                 "type": "lobby",
                 "room_code": self.code,
                 "players": self.human_names(),
-                "humans_needed": self.humans_needed,
+                "host_name": self.host_name,
+                "minimum_humans": self.minimum_humans,
+                "max_humans": max(2, 7 - self.bot_count),
                 "bot_count": self.bot_count,
                 "status": "waiting",
             }
@@ -100,6 +101,10 @@ class Room:
                 await self.remove_player(player_name)
 
     async def handle_action(self, player_name: str, payload: Dict[str, Any]) -> None:
+        if payload.get("type") == "start_game":
+            if player_name == self.host_name and self.state is None and len(self.connections) >= self.minimum_humans:
+                await self.start_game()
+            return
         if self.state is None:
             return
         message_type = payload.get("type")
@@ -130,7 +135,9 @@ class Room:
 
     async def _resolve_trick_after_delay(self) -> None:
         try:
-            await asyncio.sleep(1.0)
+            # Match the local client: leave the winning cards visible long enough
+            # for every player to see who took the trick.
+            await asyncio.sleep(3.0)
             if self.state is None or self.state.current_phase != GamePhase.TRICK_RESOLUTION:
                 return
             self.state.advance_after_trick()
@@ -171,7 +178,8 @@ class MultiplayerServer:
         player_name = str(payload.get("player_name", "")).strip()[:24] or "Jugador"
 
         if message_type == "create_room":
-            bot_count = int(payload.get("bot_count", 0))
+            # Preserve at least two human seats; bots fill only the chosen seats.
+            bot_count = max(0, min(5, int(payload.get("bot_count", 0))))
             room_code = generate_room_code(set(self.rooms.keys()))
             room = Room(code=room_code, host_name=player_name, bot_count=bot_count)
             self.rooms[room_code] = room
@@ -185,7 +193,10 @@ class MultiplayerServer:
             if room is None:
                 await websocket.send(json.dumps({"type": "error", "message": "No existe una sala con ese código."}))
                 return
-            if len(room.connections) >= room.humans_needed and player_name not in room.connections:
+            if room.state is not None:
+                await websocket.send(json.dumps({"type": "error", "message": "La partida ya comenzó."}))
+                return
+            if len(room.connections) >= max(2, 7 - room.bot_count) and player_name not in room.connections:
                 await websocket.send(json.dumps({"type": "error", "message": "La sala ya está llena."}))
                 return
             if player_name in room.connections:
